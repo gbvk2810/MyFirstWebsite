@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cyber Highway - Difficulty Modes</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    #game-container {
+      position: relative;
+      width: 100%;
+      max-width: 400px;
+      height: 500px;
+      margin: 10px auto;
+      background: #05070a; 
+      border-radius: 20px;
+      overflow: hidden;
+      border: 2px solid rgba(0, 242, 255, 0.3);
+      touch-action: none;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    
+    /* Overlay & Mode Buttons */
+    #overlay { 
+      position: absolute; inset: 0; 
+      background: rgba(0,0,0,0.9); 
+      display: flex; flex-direction: column; 
+      align-items: center; justify-content: center; 
+      z-index: 10; color: #00f2ff; font-family: sans-serif;
+    }
+
+    .mode-container { display: flex; gap: 10px; margin-top: 20px; }
+    
+    .mode-btn {
+      padding: 10px 15px;
+      border: 1px solid #00f2ff;
+      background: transparent;
+      color: #00f2ff;
+      cursor: pointer;
+      border-radius: 5px;
+      font-weight: bold;
+      transition: 0.3s;
+    }
+
+    .mode-btn:hover { background: rgba(0, 242, 255, 0.2); }
+    .easy { border-color: #00ff88; color: #00ff88; }
+    .medium { border-color: #ffcc00; color: #ffcc00; }
+    .hard { border-color: #ff0055; color: #ff0055; }
+
+    /* Mobile D-Pad */
+    .mobile-controls { display: grid; grid-template-areas: ". up ." "left down right"; gap: 10px; justify-content: center; margin: 15px auto; }
+    .ctrl-btn { width: 60px; height: 60px; background: rgba(112, 0, 255, 0.1); border: 2px solid #00f2ff; border-radius: 50%; color: #00f2ff; display: flex; align-items: center; justify-content: center; user-select: none; }
+    .btn-up { grid-area: up; } .btn-left { grid-area: left; } .btn-down { grid-area: down; } .btn-right { grid-area: right; }
+  </style>
+</head>
+<body>
+  <header><h1>Cyber Highway</h1></header>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="about.html">About Me</a>
+    <a href="game.html">Game</a>
+    <a href="contact.html">Contact</a>
+  </nav>
+
+  <div class="container">
+    <div id="game-container">
+      <div id="ui" style="position:absolute; top:15px; left:15px; color:#00f2ff; font-weight:bold; z-index:5;">
+        SCORE: <span id="scoreVal">0</span>
+      </div>
+      <div id="overlay">
+        <h2>SELECT SYSTEM MODE</h2>
+        <div class="mode-container">
+          <button class="mode-btn easy" onclick="startGame('easy')">EASY</button>
+          <button class="mode-btn medium" onclick="startGame('medium')">MEDIUM</button>
+          <button class="mode-btn hard" onclick="startGame('hard')">HARD</button>
+        </div>
+      </div>
+      <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div class="mobile-controls">
+      <div class="ctrl-btn btn-up" id="ctrl-w">▲</div>
+      <div class="ctrl-btn btn-left" id="ctrl-a">◀</div>
+      <div class="ctrl-btn btn-down" id="ctrl-s">▼</div>
+      <div class="ctrl-btn btn-right" id="ctrl-d">▶</div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('scoreVal');
+    const overlay = document.getElementById('overlay');
+
+    canvas.width = 400; canvas.height = 500;
+
+    let score = 0, gameActive = false, worldSpeed = 8, lineOffset = 0, spawnRate = 0.02;
+    const lanes = [80, 200, 320];
+    let currentLane = 1, traffic = [], keys = {};
+    let player = { x: lanes[1], y: 400, speedY: 6 };
+
+    // --- Difficulty Settings ---
+    const difficulty = {
+        easy: { speed: 6, spawn: 0.015, color: "#00ff88" },
+        medium: { speed: 10, spawn: 0.03, color: "#ffcc00" },
+        hard: { speed: 15, spawn: 0.05, color: "#ff0055" }
+    };
+
+    function moveLeft() { if(currentLane > 0) currentLane--; }
+    function moveRight() { if(currentLane < 2) currentLane++; }
+
+    // Controls
+    window.addEventListener("keydown", e => {
+        const key = e.key.toLowerCase();
+        if(key === 'arrowleft' || key === 'a') moveLeft();
+        if(key === 'arrowright' || key === 'd') moveRight();
+        keys[key] = true;
+        if(["ArrowUp","ArrowDown"].includes(e.key)) e.preventDefault();
+    });
+    window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+    const bindBtn = (id, key, action) => {
+        const btn = document.getElementById(id);
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); if(action) action(); keys[key] = true; });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; });
+    };
+    bindBtn('ctrl-w', 'w'); bindBtn('ctrl-a', 'a', moveLeft);
+    bindBtn('ctrl-s', 's'); bindBtn('ctrl-d', 'd', moveRight);
+
+    function startGame(mode) {
+        const settings = difficulty[mode];
+        worldSpeed = settings.speed;
+        spawnRate = settings.spawn;
+        player.speedY = settings.speed * 0.8;
+        
+        overlay.style.display = 'none';
+        gameActive = true;
+        score = 0; traffic = []; currentLane = 1; player.y = 400;
+        scoreEl.style.color = settings.color;
+        requestAnimationFrame(draw);
+    }
+
+    function update() {
+        if (!gameActive) return;
+        player.x += (lanes[currentLane] - player.x) * 0.25; // Snappy Lane Jump
+        if ((keys['arrowup'] || keys['w']) && player.y > 50) player.y -= player.speedY;
+        if ((keys['arrowdown'] || keys['s']) && player.y < canvas.height - 50) player.y += player.speedY;
+
+        lineOffset += worldSpeed;
+        if (lineOffset > 60) lineOffset = 0;
+
+        for (let i = traffic.length - 1; i >= 0; i--) {
+            let t = traffic[i];
+            t.y += (worldSpeed - (worldSpeed * 0.4)); // Overtaking logic
+
+            if (Math.abs(player.x - t.x) < 35 && Math.abs(player.y - t.y) < 65) {
+                gameActive = false;
+                overlay.style.display = 'flex';
+                overlay.innerHTML = `<h2>SYSTEM COLLAPSE</h2><p>Score: ${score}</p><button class="mode-btn" onclick="location.reload()">REBOOT</button>`;
+            }
+            if (t.y > canvas.height + 100) {
+                traffic.splice(i, 1);
+                score += 10; scoreEl.innerText = score;
+                worldSpeed += 0.005; // Small increase over time
+            }
+        }
+        if (Math.random() < spawnRate) {
+            traffic.push({ x: lanes[Math.floor(Math.random() * 3)], y: -100, color: '#455a64' });
+        }
+    }
+
+    function drawCar(x, y, color, isPlayer) {
+        ctx.save(); ctx.translate(x, y);
+        if(isPlayer) { ctx.shadowBlur = 15; ctx.shadowColor = color; }
+        ctx.fillStyle = color; ctx.fillRect(-20, -35, 40, 70); 
+        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(-15, -25, 30, 15);
+        ctx.fillStyle = isPlayer ? "#00f2ff" : "#fff"; ctx.fillRect(-18, -35, 10, 4); ctx.fillRect(8, -35, 10, 4);
+        ctx.fillStyle = "#ff0000"; ctx.fillRect(-18, 30, 8, 4); ctx.fillRect(10, 30, 8, 4);
+        ctx.restore();
+    }
+
+    function draw() {
+        if (!gameActive) return;
+        ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = 'rgba(0, 242, 255, 0.1)';
+        [133, 266].forEach(x => {
+            ctx.setLineDash([30, 30]); ctx.lineDashOffset = -lineOffset;
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        });
+        ctx.setLineDash([]);
+        drawCar(player.x, player.y, "#00f2ff", true);
+        traffic.forEach(t => drawCar(t.x, t.y, t.color, false));
+        update(); requestAnimationFrame(draw);
+    }
+  </script>
+</body>
+</html>
